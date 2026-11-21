@@ -5,7 +5,9 @@ captures, so the false alarm rate per capture is about 1 %. Both detectors see t
 captures. The tile is n_frames x n_bins spectrogram cells (256-point FFT, 12.8 us and
 78.1 kHz per cell). SNR is packet power over noise power in the
 whole capture bandwidth (fs_hz). The link parameters are assumptions chosen to look like
-a 2.4 GHz FSK control radio; they are not taken from a particular protocol.
+a 2.4 GHz FSK control radio; they are not taken from a particular protocol. A second
+table runs the same detectors on captures holding only a Wi-Fi interferer, so every
+detection there is a false alarm.
 
     python experiments/detection_curves.py
 """
@@ -14,12 +16,15 @@ import argparse
 import numpy as np
 
 from rfdrone.detect import energy_statistic, tile_statistic
-from rfdrone.links import fhss_control
+from rfdrone.links import WIFI_20MHZ, fhss_control, ofdm_bursts
 
 FS_HZ = 20e6
 DURATION_S = 10e-3
 LINK = {"channels_hz": np.arange(-8, 9) * 1e6, "dwell_s": 2e-3, "packet_s": 0.5e-3,
         "sym_rate_hz": 250e3, "dev_hz": 50e3}
+# Wi-Fi interferer on the capture centre. Burst length and mean gap are assumptions
+# (about a 1500 byte frame at 6 Mbit/s, and a lightly loaded channel), not measured traffic.
+WIFI = {**WIFI_20MHZ, "fc_hz": 0.0, "burst_s": 2e-3, "gap_s": 5e-3}
 
 
 def noise(n, power, rng):
@@ -54,6 +59,19 @@ def main():
         hits = dict.fromkeys(detectors, 0)
         for _ in range(args.trials):
             iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
+            x = iq + noise(n, 10 ** (-snr_db / 10), rng)
+            for k, f in detectors.items():
+                hits[k] += f(x) > thr_db[k]
+        print(f"{snr_db:6d}  " + "  ".join(f"{hits[k] / args.trials:6.3f}" for k in detectors))
+
+    # No drone link at all: how often does a Wi-Fi interferer alone cross the same thresholds?
+    # SNR here is burst power over noise power in the whole capture.
+    print("Wi-Fi only, no link")
+    print("snr_db  " + "  ".join(f"{k:>6}" for k in detectors))
+    for snr_db in [-20, -15, -10, -5, 0, 10]:
+        hits = dict.fromkeys(detectors, 0)
+        for _ in range(args.trials):
+            iq, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
             x = iq + noise(n, 10 ** (-snr_db / 10), rng)
             for k, f in detectors.items():
                 hits[k] += f(x) > thr_db[k]

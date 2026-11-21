@@ -73,3 +73,29 @@ reaches 0.97+ (-20 vs -6 dB). The tile is tuned to this exact packet, so the
 number is optimistic for a link whose packet length and deviation are not
 known in advance. A bank of tile sizes with the threshold set on the max over
 the bank is the obvious next step once there is a second link type to test.
+
+## 2026-11-21
+
+Wi-Fi interferer: `ofdm_bursts` with the 802.11a 20 MHz numbers (64-point
+FFT, 52 used subcarriers, 0.8 us CP) on the capture centre, so it covers
+16.6 of the 20 MHz. Bursts of 2 ms (a 1500 byte frame at 6 Mbit/s) with
+exponential gaps, mean 5 ms; both assumed. No drone link in these
+captures, same thresholds as the link table, 200 trials per SNR, seed 0
+(`python experiments/detection_curves.py`, second table):
+
+    snr_db  energy    tile
+       -20   0.000   0.010
+       -15   0.020   0.010
+       -10   0.055   0.055
+        -5   0.760   0.830
+         0   0.800   0.870
+        10   0.790   0.880
+
+From -5 dB up both detectors alarm on Wi-Fi alone. The ceiling is set by the
+traffic model: with a 5 ms mean gap, e^-2 = 13.5 % of 10 ms captures hold no
+burst, so the tile detector fires on nearly every capture that has one. Not
+sure yet why the energy detector sits a few points lower; 200 trials gives
+about +/-0.03, so it may be noise. Either way, energy above the floor says
+nothing about what made it. A Wi-Fi burst is 2 ms long and 212 bins wide,
+the control packet 0.5 ms and 2 to 3 bins, so the shape of the occupied
+region should separate them. That is the next thing to measure.
