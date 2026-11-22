@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from rfdrone.detect import _box_mean, energy_statistic, tile_statistic
+from rfdrone.detect import _box_mean, energy_statistic, occupied_bins, tile_statistic
+from rfdrone.links import WIFI_20MHZ, ofdm_bursts
 from rfdrone.spectro import bin_freqs, spectrogram
 
 
@@ -60,3 +61,47 @@ def test_tile_statistic_finds_a_narrow_burst_the_energy_detector_misses(rng):
     clean = tile_statistic(noise, 10, 4)
     assert tile_statistic(noise + burst, 10, 4) > clean + 5
     assert energy_statistic(noise + burst) < energy_statistic(noise) + 2
+
+
+def test_on_bin_tone_occupies_the_hann_main_lobe():
+    # an on-bin tone through a Hann window lands in its bin and the two either side at
+    # -6 dB; every other bin is a null, far more than 20 dB down
+    fs_hz, nfft = 20e6, 256
+    f_hz = 40 * fs_hz / nfft - fs_hz / 2
+    iq = np.exp(2j * np.pi * f_hz * np.arange(nfft * 100) / fs_hz)
+    iq += 1e-3 * np.random.default_rng(1).standard_normal(len(iq))
+    assert occupied_bins(iq, 39, 2) == 3
+
+
+def test_ofdm_burst_occupies_its_subcarriers_and_a_tone_does_not(rng):
+    fs_hz = 20e6
+    burst, _ = ofdm_bursts(fs_hz, 2e-3, 0.0, burst_s=2e-3, gap_s=1e-9, rng=rng, **WIFI_20MHZ)
+    # one burst in 10 ms, so most cells are still noise and the median floor holds
+    wifi = np.concatenate([np.zeros(100_000, dtype=complex), burst, np.zeros(60_000)])
+    n = len(wifi)
+    noise = 0.1 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+    # 52 x 312.5 kHz = 16.25 MHz is 208 bins of 78.1 kHz. The symbols have no edge
+    # windowing, so their sinc skirts add a few dozen more bins within 20 dB.
+    assert occupied_bins(wifi + noise, 39, 2) >= 200
+    tone = np.exp(2j * np.pi * 1.3e6 * np.arange(n) / fs_hz)
+    assert occupied_bins(tone + noise, 39, 2) <= 4
+
+
+def test_noise_alone_occupies_only_the_peak_tile(rng):
+    n = 256 * 781
+    counts = [occupied_bins((rng.standard_normal(n) + 1j * rng.standard_normal(n)), 39, 2)
+              for _ in range(20)]
+    # the max tile is the noisiest pair of bins, so they usually pass; little else should
+    assert max(counts) <= 6
+
+
+def test_only_the_frames_of_the_peak_tile_are_counted(rng):
+    fs_hz, nfft = 20e6, 256
+    n = nfft * 781
+    k = np.arange(nfft * 39)
+    x = 0.1 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+    x[:len(k)] += np.exp(2j * np.pi * 1.3e6 * k / fs_hz)
+    # a weaker Wi-Fi burst well after the tone, in frames the peak tile does not cover
+    burst, _ = ofdm_bursts(fs_hz, 2e-3, 0.0, burst_s=2e-3, gap_s=1e-9, rng=rng, **WIFI_20MHZ)
+    x[nfft * 400:nfft * 400 + len(burst)] += burst
+    assert occupied_bins(x, 39, 2) <= 4
