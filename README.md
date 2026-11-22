@@ -10,8 +10,11 @@ energy detector kept as the baseline, and a tile detector that looks for
 energy in a packet-sized patch of the spectrogram. On the simulated control
 link the tile detector reaches full detection at -20 dB SNR (over 20 MHz)
 against -6 dB for the baseline, both at 1 % false alarms per capture.
-Neither detector can tell the link from Wi-Fi yet: a Wi-Fi burst at -5 dB
-with no drone present sets off both. `NOTES.md` has the measured rates.
+A Wi-Fi burst at -5 dB with no drone present sets off both detectors.
+Adding a limit on the occupied bandwidth of the detected region cuts those
+false alarms to 0.5 % or less, but when Wi-Fi is on the air at the same time
+as the link it also rejects up to 83 % of real detections, so it is not the
+final answer. `NOTES.md` has the measured rates.
 
 ```sh
 pip install -e .[dev]

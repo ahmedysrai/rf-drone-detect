@@ -99,3 +99,47 @@ about +/-0.03, so it may be noise. Either way, energy above the floor says
 nothing about what made it. A Wi-Fi burst is 2 ms long and 212 bins wide,
 the control packet 0.5 ms and 2 to 3 bins, so the shape of the occupied
 region should separate them. That is the next thing to measure.
+
+## 2026-11-22
+
+Shape feature, first part: occupied bandwidth of the region the tile detector
+found (`occupied_bins`). Average the spectrogram over the 39 frames of the
+peak tile, then count bins more than 3 noise sigma above the floor (median
+cell / ln 2) and within 20 dB of the strongest bin.
+
+Trial run on seed 1, 10 captures each: noise alone 2 to 4 bins (the peak
+tile itself), control packet 2 to 9 from -22 to 0 dB, Wi-Fi 18 to 46 at
+-5 dB and 115 to 221 from 0 dB up. Without the 20 dB limit the packet grew
+to 15-25 bins at +20 dB and 26-63 at +30 dB, because the CPFSK skirts (no
+pulse shaping) rise above the floor; with it the packet stays at 5-6 bins
+at any SNR. Picked 12 bins (940 kHz) as the cut between the two. Wi-Fi at
+-10 dB already measures 2 to 9, so the cut only helps once Wi-Fi is strong
+enough to be seen at all.
+
+Seed 0, 200 trials, same thresholds as before. "narrow" is tile detector
+fired and occupied_bins <= 12 (`python experiments/detection_curves.py`).
+Link alone: narrow is identical to tile at every SNR from -30 to +20 dB
+(1.000 from -20 dB). Wi-Fi alone:
+
+    snr_db  energy    tile  narrow
+       -10   0.065   0.080   0.080
+        -5   0.805   0.840   0.000
+         0   0.805   0.850   0.005
+        10   0.790   0.885   0.000
+
+Link and Wi-Fi in the same capture, Wi-Fi at 0 dB:
+
+    snr_db  energy    tile  narrow
+       -20   0.810   1.000   0.170
+       -10   0.840   1.000   0.400
+         0   1.000   1.000   0.580
+        10   1.000   1.000   1.000
+
+So the width test removes the Wi-Fi false alarms and costs nothing on a
+clean link, but it throws the link away whenever a Wi-Fi burst is on during
+the packet's frames: the count is over the whole band, so the Wi-Fi bins
+add to the packet's. At +10 dB the packet is more than 20 dB above the
+Wi-Fi bins and they drop out. Measuring width only over the bins connected
+to the peak, or masking wideband frames first, should fix most of this.
+The Wi-Fi-only numbers moved by a point or two from 11-21 because two more
+link SNRs now run first and shift the random stream.

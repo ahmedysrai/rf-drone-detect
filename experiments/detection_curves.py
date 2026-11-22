@@ -7,7 +7,9 @@ captures. The tile is n_frames x n_bins spectrogram cells (256-point FFT, 12.8 u
 whole capture bandwidth (fs_hz). The link parameters are assumptions chosen to look like
 a 2.4 GHz FSK control radio; they are not taken from a particular protocol. A second
 table runs the same detectors on captures holding only a Wi-Fi interferer, so every
-detection there is a false alarm.
+detection there is a false alarm, and a third puts the link and Wi-Fi in one capture.
+The "narrow" column is the tile detector with a limit on the occupied bandwidth of the
+region it found, which is meant to reject wideband emitters such as Wi-Fi.
 
     python experiments/detection_curves.py
 """
@@ -15,7 +17,7 @@ import argparse
 
 import numpy as np
 
-from rfdrone.detect import energy_statistic, tile_statistic
+from rfdrone.detect import energy_statistic, occupied_bins, tile_statistic
 from rfdrone.links import WIFI_20MHZ, fhss_control, ofdm_bursts
 
 FS_HZ = 20e6
@@ -25,6 +27,10 @@ LINK = {"channels_hz": np.arange(-8, 9) * 1e6, "dwell_s": 2e-3, "packet_s": 0.5e
 # Wi-Fi interferer on the capture centre. Burst length and mean gap are assumptions
 # (about a 1500 byte frame at 6 Mbit/s, and a lightly loaded channel), not measured traffic.
 WIFI = {**WIFI_20MHZ, "fc_hz": 0.0, "burst_s": 2e-3, "gap_s": 5e-3}
+# "narrow" is the tile detector plus a limit on occupied bandwidth (78.1 kHz bins). 12 bins
+# sits between the 2 to 9 a control packet gave and the 18 or more of a Wi-Fi burst at
+# -5 dB, in a trial run on seed 1 (NOTES.md, 2026-11-22). The tables below use seed 0.
+MAX_BINS = 12
 
 
 def noise(n, power, rng):
@@ -37,6 +43,7 @@ def main():
     ap.add_argument("--trials", type=int, default=200)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tile", type=int, nargs=2, default=[39, 2], metavar=("FRAMES", "BINS"))
+    ap.add_argument("--max-bins", type=int, default=MAX_BINS)
     args = ap.parse_args()
 
     detectors = {
@@ -54,28 +61,40 @@ def main():
     for k, t in thr_db.items():
         print(f"{k} threshold {t:.2f} dB from {args.noise_trials} noise-only captures")
 
-    print("snr_db  " + "  ".join(f"{k:>6}" for k in detectors))
-    for snr_db in [-30, -25, -22, -20, -18, -15, -10, -8, -6, -4, 0]:
-        hits = dict.fromkeys(detectors, 0)
-        for _ in range(args.trials):
-            iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
-            x = iq + noise(n, 10 ** (-snr_db / 10), rng)
-            for k, f in detectors.items():
-                hits[k] += f(x) > thr_db[k]
-        print(f"{snr_db:6d}  " + "  ".join(f"{hits[k] / args.trials:6.3f}" for k in detectors))
+    def decide(x):
+        d = {k: f(x) > thr_db[k] for k, f in detectors.items()}
+        d["narrow"] = d["tile"] and occupied_bins(x, *args.tile) <= args.max_bins
+        return d
 
-    # No drone link at all: how often does a Wi-Fi interferer alone cross the same thresholds?
-    # SNR here is burst power over noise power in the whole capture.
-    print("Wi-Fi only, no link")
-    print("snr_db  " + "  ".join(f"{k:>6}" for k in detectors))
-    for snr_db in [-20, -15, -10, -5, 0, 10]:
-        hits = dict.fromkeys(detectors, 0)
-        for _ in range(args.trials):
-            iq, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
-            x = iq + noise(n, 10 ** (-snr_db / 10), rng)
-            for k, f in detectors.items():
-                hits[k] += f(x) > thr_db[k]
-        print(f"{snr_db:6d}  " + "  ".join(f"{hits[k] / args.trials:6.3f}" for k in detectors))
+    def table(title, snrs, make):
+        print(title)
+        print("snr_db  " + "  ".join(f"{k:>6}" for k in ["energy", "tile", "narrow"]))
+        for snr_db in snrs:
+            hits = dict.fromkeys(["energy", "tile", "narrow"], 0)
+            for _ in range(args.trials):
+                for k, v in decide(make(snr_db)).items():
+                    hits[k] += v
+            print(f"{snr_db:6d}  " + "  ".join(f"{h / args.trials:6.3f}" for h in hits.values()))
+
+    def link_only(snr_db):
+        iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
+        return iq + noise(n, 10 ** (-snr_db / 10), rng)
+
+    # SNR is burst power over noise power in the whole capture
+    def wifi_only(snr_db):
+        iq, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
+        return iq + noise(n, 10 ** (-snr_db / 10), rng)
+
+    # Wi-Fi bursts at a fixed 0 dB under the link; SNR is the link's, as in the first table
+    def link_and_wifi(snr_db):
+        iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
+        wifi, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
+        p_noise = 10 ** (-snr_db / 10)
+        return iq + np.sqrt(p_noise) * wifi + noise(n, p_noise, rng)
+
+    table("FHSS link", [-30, -25, -22, -20, -18, -15, -10, -8, -6, -4, 0, 10, 20], link_only)
+    table("Wi-Fi only, no link", [-20, -15, -10, -5, 0, 10], wifi_only)
+    table("FHSS link with 0 dB Wi-Fi", [-20, -15, -10, -5, 0, 10], link_and_wifi)
 
 
 if __name__ == "__main__":
