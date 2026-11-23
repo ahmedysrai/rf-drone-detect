@@ -1,7 +1,13 @@
 import numpy as np
 import pytest
 
-from rfdrone.detect import _box_mean, energy_statistic, occupied_bins, tile_statistic
+from rfdrone.detect import (
+    _box_mean,
+    energy_statistic,
+    occupied_bins,
+    tile_statistic,
+    wideband_frames,
+)
 from rfdrone.links import WIFI_20MHZ, ofdm_bursts
 from rfdrone.spectro import bin_freqs, spectrogram
 
@@ -105,3 +111,48 @@ def test_only_the_frames_of_the_peak_tile_are_counted(rng):
     burst, _ = ofdm_bursts(fs_hz, 2e-3, 0.0, burst_s=2e-3, gap_s=1e-9, rng=rng, **WIFI_20MHZ)
     x[nfft * 400:nfft * 400 + len(burst)] += burst
     assert occupied_bins(x, 39, 2) <= 4
+
+
+def _wifi_in_noise(rng, start, n, power):
+    fs_hz = 20e6
+    burst, _ = ofdm_bursts(fs_hz, 2e-3, 0.0, burst_s=2e-3, gap_s=1e-9, rng=rng, **WIFI_20MHZ)
+    x = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) / np.sqrt(2)
+    x[start:start + len(burst)] += np.sqrt(power) * burst
+    return x
+
+
+def test_wideband_frames_flags_a_wifi_burst_and_little_else(rng):
+    nfft = 256
+    x = _wifi_in_noise(rng, nfft * 300, nfft * 781, 1.0)
+    busy = wideband_frames(spectrogram(x, nfft))
+    # the 2 ms burst covers frames 300 to 455; the 8-frame average blurs its edges
+    assert busy[305:450].all()
+    assert np.count_nonzero(busy[:290]) + np.count_nonzero(busy[465:]) <= 3
+
+
+def test_a_narrow_burst_is_not_a_wideband_frame(rng):
+    fs_hz, nfft = 20e6, 256
+    n = nfft * 781
+    x = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) / np.sqrt(2)
+    k = np.arange(nfft * 39)
+    x[nfft * 300:nfft * 339] += 100 * np.exp(2j * np.pi * 1.3e6 * k / fs_hz)
+    assert not wideband_frames(spectrogram(x, nfft))[290:350].any()
+
+
+def test_masking_moves_the_peak_tile_off_the_wifi_frames(rng):
+    # a weak tone through the whole capture, Wi-Fi on top of it for 2 ms: the tone plus
+    # Wi-Fi frames hold the strongest tile until they are masked
+    fs_hz, nfft = 20e6, 256
+    n = nfft * 781
+    x = _wifi_in_noise(rng, nfft * 300, n, 1.0)
+    x += 0.5 * np.exp(2j * np.pi * 1.3e6 * np.arange(n) / fs_hz)
+    assert occupied_bins(x, 39, 2) >= 100
+    assert occupied_bins(x, 39, 2, mask_wideband=True) <= 6
+
+
+def test_masking_drops_the_tile_statistic_of_wifi_alone(rng):
+    # noise alone gives about 3.7 to 4.1 dB on a capture this size; the detection curves
+    # threshold is 4.3 dB
+    x = _wifi_in_noise(rng, 256 * 300, 256 * 781, 1.0)
+    assert tile_statistic(x, 39, 2) > 6
+    assert tile_statistic(x, 39, 2, mask_wideband=True) < 4.2

@@ -23,21 +23,52 @@ def _box_mean(P, n_frames, n_bins):
     return s / (n_frames * n_bins)
 
 
-def tile_statistic(iq, n_frames, n_bins, nfft=256):
+def wideband_frames(P, n_avg=8, k_sigma=4.0):
+    """Boolean mask of the spectrogram frames that a wideband emitter has raised.
+
+    A burst that fills most of the band lifts the median bin of each frame it covers, while
+    a narrowband packet a few bins wide leaves it where it was. The per-frame median is
+    averaged over n_avg frames to cut its spread, and a frame is flagged when that average
+    is more than k_sigma robust standard deviations (1.4826 x MAD) above its median over the
+    capture. Both the median and the MAD assume fewer than half the frames are busy.
+    """
+    r = np.convolve(np.median(P, axis=1), np.ones(n_avg) / n_avg, mode="same")
+    m = np.median(r)
+    return r > m + k_sigma * 1.4826 * np.median(np.abs(r - m))
+
+
+def _spectrogram_and_floor(iq, nfft, mask_wideband):
+    """Spectrogram and its median cell, with wideband frames set to the median if asked.
+
+    The median is then taken over the frames left, so a Wi-Fi burst neither raises the
+    floor nor offers the tile detector a region to pick.
+    """
+    P = spectrogram(iq, nfft)
+    if not mask_wideband:
+        return P, np.median(P)
+    busy = wideband_frames(P)
+    med = np.median(P[~busy])
+    P[busy] = med
+    return P, med
+
+
+def tile_statistic(iq, n_frames, n_bins, nfft=256, mask_wideband=False):
     """Peak over median of the spectrogram averaged over n_frames x n_bins tiles, in dB.
 
     A narrowband burst only raises the bins it occupies, so averaging over a tile about the
     size of one packet keeps its energy and drops the noise in the rest of the band. The
     tile slides one frame and one bin at a time; tiles do not wrap around the band edge.
+    With mask_wideband, frames flagged by wideband_frames are left out first.
     """
-    P = spectrogram(iq, nfft)
+    P, med = _spectrogram_and_floor(iq, nfft, mask_wideband)
     if n_frames > P.shape[0] or n_bins > nfft:
         raise ValueError(f"tile {n_frames}x{n_bins} larger than spectrogram {P.shape}")
     t = _box_mean(P, n_frames, n_bins)
-    return 10 * np.log10(t.max() / np.median(P))
+    return 10 * np.log10(t.max() / med)
 
 
-def occupied_bins(iq, n_frames, n_bins, nfft=256, k_sigma=3.0, drop_db=20.0):
+def occupied_bins(iq, n_frames, n_bins, nfft=256, k_sigma=3.0, drop_db=20.0,
+                  mask_wideband=False):
     """Number of spectrogram bins occupied during the strongest n_frames x n_bins tile.
 
     The spectrogram is averaged over the frames of the tile that tile_statistic would pick,
@@ -49,16 +80,17 @@ def occupied_bins(iq, n_frames, n_bins, nfft=256, k_sigma=3.0, drop_db=20.0):
     strong narrowband signal from counting as bandwidth.
 
     Bins are counted over the whole band, not only those next to the peak, so a second
-    emitter on the air during the same frames adds its bins to the count. The floor estimate
-    assumes more than half the cells hold only noise; a band that is busy most of the time
-    raises it and hides the occupied bins.
+    emitter on the air during the same frames adds its bins to the count. mask_wideband
+    leaves out the frames flagged by wideband_frames, so a Wi-Fi burst only adds bins if
+    it was too weak to be flagged. The floor estimate assumes more than half the cells hold
+    only noise; a band that is busy most of the time raises it and hides the occupied bins.
     """
-    P = spectrogram(iq, nfft)
+    P, med = _spectrogram_and_floor(iq, nfft, mask_wideband)
     if n_frames > P.shape[0] or n_bins > nfft:
         raise ValueError(f"tile {n_frames}x{n_bins} larger than spectrogram {P.shape}")
     t = _box_mean(P, n_frames, n_bins)
     f0, _ = np.unravel_index(t.argmax(), t.shape)
     s = P[f0:f0 + n_frames].mean(axis=0)
-    floor = np.median(P) / np.log(2)
+    floor = med / np.log(2)
     thr = max(floor * (1 + k_sigma / np.sqrt(n_frames)), s.max() * 10 ** (-drop_db / 10))
     return int(np.count_nonzero(s > thr))
