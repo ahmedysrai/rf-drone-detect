@@ -143,3 +143,61 @@ Wi-Fi bins and they drop out. Measuring width only over the bins connected
 to the peak, or masking wideband frames first, should fix most of this.
 The Wi-Fi-only numbers moved by a point or two from 11-21 because two more
 link SNRs now run first and shift the random stream.
+
+## 2026-11-23
+
+Looked at why the width gate loses the link when Wi-Fi is on. Seed 1, 40
+mixed captures each (Wi-Fi at 0 dB): the peak tile lands on the packet in
+65 % of captures at -20 dB and in all of them at -10 and 0 dB, but a Wi-Fi
+burst overlaps the tile's frames in 73 % at -10 dB and 40 % at 0 dB. So the
+gate fails mostly because the packet and a burst are on at the same time,
+not because the tile picks the Wi-Fi burst. The link channels (-8 to +8 MHz)
+all sit inside the +/-8.1 MHz Wi-Fi band, so counting only bins connected to
+the peak should not help much, and it did not: 0.60 / 0.77 / 0.83 of
+captures under 12 connected bins at -20 / -10 / 0 dB, before the detection
+threshold is applied.
+
+Masking wideband frames instead (`detect.wideband_frames`). A Wi-Fi burst
+raises the median bin of the frames it covers; the packet's few bins do not.
+On seed 1 the per-frame median over the capture median had sd 0.11 on noise
+alone, and over burst frames it averaged 1.02 / 1.08 / 1.21 / 1.61 at Wi-Fi
+-15 / -10 / -5 / 0 dB. Single frames are too noisy to call, so the median is
+averaged over 8 frames and a frame is flagged above median + 4 x 1.4826 MAD.
+Flagged frames are set to the median of the frames left, and the floor for
+both the tile statistic and the bandwidth count comes from those frames too.
+Taking the floor from the whole spectrogram, as before, left mixed detection
+at 0.62 at -20 dB in a 100-trial prototype; the masked floor gave 0.88.
+Averaging over 16 frames, or widening the mask by 4 or 8 frames each side,
+moved nothing by more than 0.01, so it stays at 8 and no widening.
+
+Seed 0, 200 trials, `python experiments/detection_curves.py`. "masked" has its
+own noise-only threshold, which came out the same as the tile's (4.27 dB):
+on noise alone the mask almost never fires. Link alone: masked is the same as
+tile at every SNR. Wi-Fi alone:
+
+    snr_db  energy    tile  narrow  masked
+       -10   0.065   0.080   0.080   0.080
+        -5   0.805   0.840   0.000   0.020
+         0   0.805   0.850   0.005   0.010
+        10   0.790   0.885   0.000   0.015
+
+Link with 0 dB Wi-Fi:
+
+    snr_db  energy    tile  narrow  masked
+       -20   0.810   1.000   0.170   0.955
+       -15   0.750   1.000   0.315   0.925
+       -10   0.840   1.000   0.400   0.885
+        -5   1.000   1.000   0.530   0.930
+         0   1.000   1.000   0.580   0.955
+        10   1.000   1.000   1.000   1.000
+
+The masked false alarms on Wi-Fi alone sit at about the 1 % the threshold
+was set for: once the burst frames are gone the rest is noise. The narrow
+column was below that only because the burst inflated the width of noise
+peaks too. The 5 to 12 % still missed with Wi-Fi on is not explained yet.
+Two guesses to check: every packet in the capture fell under a burst (5
+packets in 10 ms, bursts on about 29 % of the time), or the 8-frame average
+leaves burst edges unflagged and those frames win the tile. Wi-Fi weaker
+than about -10 dB is not flagged, but at that level it did not upset the
+gate either. Columns energy, tile and narrow match 11-22 exactly, since the
+mask draws nothing from the random stream.

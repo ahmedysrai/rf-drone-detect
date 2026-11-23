@@ -9,7 +9,9 @@ a 2.4 GHz FSK control radio; they are not taken from a particular protocol. A se
 table runs the same detectors on captures holding only a Wi-Fi interferer, so every
 detection there is a false alarm, and a third puts the link and Wi-Fi in one capture.
 The "narrow" column is the tile detector with a limit on the occupied bandwidth of the
-region it found, which is meant to reject wideband emitters such as Wi-Fi.
+region it found, which is meant to reject wideband emitters such as Wi-Fi. "masked" is
+the same after leaving out the frames a wideband burst raised (detect.wideband_frames),
+with its own noise-only threshold.
 
     python experiments/detection_curves.py
 """
@@ -48,7 +50,8 @@ def main():
 
     detectors = {
         "energy": energy_statistic,
-        "tile": lambda x: tile_statistic(x, n_frames=args.tile[0], n_bins=args.tile[1]),
+        "tile": lambda x: tile_statistic(x, *args.tile),
+        "masked": lambda x: tile_statistic(x, *args.tile, mask_wideband=True),
     }
     rng = np.random.default_rng(args.seed)
     n = round(DURATION_S * FS_HZ)
@@ -64,17 +67,21 @@ def main():
     def decide(x):
         d = {k: f(x) > thr_db[k] for k, f in detectors.items()}
         d["narrow"] = d["tile"] and occupied_bins(x, *args.tile) <= args.max_bins
+        d["masked"] = d["masked"] and \
+            occupied_bins(x, *args.tile, mask_wideband=True) <= args.max_bins
         return d
+
+    columns = ["energy", "tile", "narrow", "masked"]
 
     def table(title, snrs, make):
         print(title)
-        print("snr_db  " + "  ".join(f"{k:>6}" for k in ["energy", "tile", "narrow"]))
+        print("snr_db  " + "  ".join(f"{k:>6}" for k in columns))
         for snr_db in snrs:
-            hits = dict.fromkeys(["energy", "tile", "narrow"], 0)
+            hits = dict.fromkeys(columns, 0)
             for _ in range(args.trials):
                 for k, v in decide(make(snr_db)).items():
                     hits[k] += v
-            print(f"{snr_db:6d}  " + "  ".join(f"{h / args.trials:6.3f}" for h in hits.values()))
+            print(f"{snr_db:6d}  " + "  ".join(f"{hits[k] / args.trials:6.3f}" for k in columns))
 
     def link_only(snr_db):
         iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)

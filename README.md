@@ -12,9 +12,12 @@ link the tile detector reaches full detection at -20 dB SNR (over 20 MHz)
 against -6 dB for the baseline, both at 1 % false alarms per capture.
 A Wi-Fi burst at -5 dB with no drone present sets off both detectors.
 Adding a limit on the occupied bandwidth of the detected region cuts those
-false alarms to 0.5 % or less, but when Wi-Fi is on the air at the same time
-as the link it also rejects up to 83 % of real detections, so it is not the
-final answer. `NOTES.md` has the measured rates.
+false alarms to 0.5 % or less, but on its own it rejects most real detections
+whenever Wi-Fi is on the air at the same time as the link. Leaving out the
+frames a Wi-Fi burst covers before running the tile detector and the bandwidth
+limit fixes most of that: with 0 dB Wi-Fi in the capture the link is found in
+between 88 and 96 % of captures from -20 dB up, and Wi-Fi alone sets it off in 1 to 2 %.
+`NOTES.md` has the measured rates.
 
 ```sh
 pip install -e .[dev]
