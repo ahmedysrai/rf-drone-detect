@@ -23,18 +23,20 @@ def _box_mean(P, n_frames, n_bins):
     return s / (n_frames * n_bins)
 
 
-def wideband_frames(P, n_avg=8, k_sigma=4.0):
+def wideband_frames(P, n_avg=8, ref_quantile=0.1, rise=1.3):
     """Boolean mask of the spectrogram frames that a wideband emitter has raised.
 
     A burst that fills most of the band lifts the median bin of each frame it covers, while
     a narrowband packet a few bins wide leaves it where it was. The per-frame median is
     averaged over n_avg frames to cut its spread, and a frame is flagged when that average
-    is more than k_sigma robust standard deviations (1.4826 x MAD) above its median over the
-    capture. Both the median and the MAD assume fewer than half the frames are busy.
+    is more than rise times its ref_quantile over the capture. The reference is a low
+    quantile rather than the median because Wi-Fi can be on for more than half of a
+    capture, and then the median frame is a Wi-Fi frame. It only needs ref_quantile of the
+    frames to be quiet. rise = 1.3 sits above the largest ratio of average to reference,
+    1.24, seen in 500 noise-only captures of 781 frames (NOTES.md, 2026-11-24).
     """
     r = np.convolve(np.median(P, axis=1), np.ones(n_avg) / n_avg, mode="same")
-    m = np.median(r)
-    return r > m + k_sigma * 1.4826 * np.median(np.abs(r - m))
+    return r > rise * np.quantile(r, ref_quantile)
 
 
 def _spectrogram_and_floor(iq, nfft, mask_wideband):

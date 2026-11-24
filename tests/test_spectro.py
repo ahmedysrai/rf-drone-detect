@@ -156,3 +156,16 @@ def test_masking_drops_the_tile_statistic_of_wifi_alone(rng):
     x = _wifi_in_noise(rng, 256 * 300, 256 * 781, 1.0)
     assert tile_statistic(x, 39, 2) > 6
     assert tile_statistic(x, 39, 2, mask_wideband=True) < 4.2
+
+
+def test_wideband_frames_flags_wifi_on_most_of_the_capture(rng):
+    # three 2 ms bursts cover about 60 % of the frames, so the median frame is a Wi-Fi frame
+    nfft = 256
+    x = _wifi_in_noise(rng, nfft * 100, nfft * 781, 1.0)
+    for start in (260, 420):
+        burst, _ = ofdm_bursts(20e6, 2e-3, 0.0, burst_s=2e-3, gap_s=1e-9, rng=rng,
+                               **WIFI_20MHZ)
+        x[nfft * start:nfft * start + len(burst)] += burst
+    busy = wideband_frames(spectrogram(x, nfft))
+    assert busy[105:250].all() and busy[265:410].all() and busy[425:570].all()
+    assert np.count_nonzero(busy[:90]) + np.count_nonzero(busy[590:]) <= 3
