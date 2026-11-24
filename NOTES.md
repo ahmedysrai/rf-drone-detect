@@ -201,3 +201,43 @@ leaves burst edges unflagged and those frames win the tile. Wi-Fi weaker
 than about -10 dB is not flagged, but at that level it did not upset the
 gate either. Columns energy, tile and narrow match 11-22 exactly, since the
 mask draws nothing from the random stream.
+
+## 2026-11-24
+
+The 5 to 12 % of links still missed with 0 dB Wi-Fi on (11-23) were neither
+of the two guesses. In every miss at -20, -10 and 0 dB (seed 0, 200 trials
+each) at least one packet sat in unflagged frames, so packets hidden under
+bursts were not it. In 41 of the 45 misses the mask had flagged no frame
+at all, while Wi-Fi covered 375 to 584 of the 781 frames. With bursts on for
+more than about half the capture the median frame is a Wi-Fi frame, the
+threshold rises with it, and occupied_bins then counts the Wi-Fi bins (60 to
+142) and the width gate rejects the capture. 2000 draws of the Wi-Fi model
+gave more than half the capture busy in 8 % of them, which is about the miss
+rate. Of the other 4, all at -20 dB, one had only 246 of 361 burst frames
+flagged and failed the width gate, and 3 had the bursts masked and a tile
+statistic of 3.8 to 4.3 dB, just under the 4.27 dB threshold: plain misses.
+
+Changed wideband_frames to compare each frame with the 10th percentile of
+the 8-frame averages instead of the median and MAD, flagging above 1.3 x
+that. On 500 noise-only captures (seed 1) the largest ratio of average to
+10th percentile was 1.24 (median 1.18), and 1.25 with a -10 dB link added,
+so 1.3 leaves a little room. On 500 more (seed 2) no frame was flagged.
+This needs 10 % of the frames to be quiet, which every draw of this Wi-Fi
+model had.
+
+`python experiments/detection_curves.py`, seed 0. Link alone and Wi-Fi alone
+are the same as 11-23 in every column, masked included. Link with 0 dB
+Wi-Fi:
+
+    snr_db  energy    tile  narrow  masked
+       -20   0.810   1.000   0.170   0.990
+       -15   0.750   1.000   0.315   1.000
+       -10   0.840   1.000   0.400   1.000
+        -5   1.000   1.000   0.530   1.000
+         0   1.000   1.000   0.580   1.000
+        10   1.000   1.000   1.000   1.000
+
+The rise of 1.3 is about 1.1 dB above the quiet frames, so Wi-Fi weaker
+than about -6 dB over 20 MHz (52 of 64 subcarriers lifting each bin by 0.3)
+is still not flagged; at -10 dB it did not upset
+the width gate in the 11-23 tables, but the range in between is untested.
