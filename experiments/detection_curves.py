@@ -12,7 +12,8 @@ capture, one table per Wi-Fi level (--wifi-db, power over the noise).
 The "narrow" column is the tile detector with a limit on the occupied bandwidth of the
 region it found, which is meant to reject wideband emitters such as Wi-Fi. "masked" is
 the same after leaving out the frames a wideband burst raised (detect.wideband_frames),
-with its own noise-only threshold.
+with its own noise-only threshold, and with the width gate's floor taken from the peak
+tile's own spectrum (occupied_bins local_floor).
 
     python experiments/detection_curves.py
 """
@@ -71,7 +72,7 @@ def main():
         d = {k: f(x) > thr_db[k] for k, f in detectors.items()}
         d["narrow"] = d["tile"] and occupied_bins(x, *args.tile) <= args.max_bins
         d["masked"] = d["masked"] and \
-            occupied_bins(x, *args.tile, mask_wideband=True) <= args.max_bins
+            occupied_bins(x, *args.tile, mask_wideband=True, local_floor=True) <= args.max_bins
         return d
 
     columns = ["energy", "tile", "narrow", "masked"]

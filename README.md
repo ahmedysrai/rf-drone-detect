@@ -15,9 +15,10 @@ Adding a limit on the occupied bandwidth of the detected region cuts those
 false alarms to 0.5 % or less, but on its own it rejects most real detections
 whenever Wi-Fi is on the air at the same time as the link. Leaving out the
 frames a Wi-Fi burst covers before running the tile detector and the bandwidth
-limit fixes that: with 0 dB Wi-Fi in the capture the link is found in 99 % of
-captures at -20 dB and in all of them from -15 dB up, and Wi-Fi alone sets it off
-in 1 to 2 %.
+limit, with the noise floor for that limit taken from the detected region's own
+frames, fixes that: with Wi-Fi from -10 to 0 dB in the capture the link is found
+in 98 % or more of captures at -20 dB and in at least 99.5 % from -15 dB up, and
+Wi-Fi alone sets it off in 1 to 2 %.
 `NOTES.md` has the measured rates.
 
 ```sh

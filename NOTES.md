@@ -274,3 +274,28 @@ the whole capture, which is mostly quiet frames, enough of those bins reach
 the 3 sigma line in a 39-frame average to push the count past 12. At -10 dB
 the lift is too small to matter often, and from -6 dB the mask takes the
 frames out.
+
+Fix: occupied_bins gains local_floor, which takes the floor from the median
+bin of the peak tile's spectrum instead of the median cell of the capture.
+An unmasked burst in the tile's frames then raises the floor along with its
+own bins. The masked column uses it; narrow keeps the capture floor, since
+there a Wi-Fi burst filling the tile would set the floor itself and slip
+through the gate. On 10 captures of a 1.3 MHz tone under a -10 dB burst (the
+new test) the count was 6 to 15 with the capture floor and 3 to 10 with the
+local one.
+
+Rerun, `python experiments/detection_curves.py`, seed 0. Link alone and
+Wi-Fi alone are unchanged in every column, masked included (Wi-Fi alone
+0.010 to 0.020 from -5 dB up). Masked column with Wi-Fi:
+
+    snr_db  -10 dB  -8 dB  -6 dB  -3 dB   0 dB
+       -20   0.995  1.000  0.980  0.995  0.980
+       -15   1.000  1.000  1.000  1.000  1.000
+       -10   1.000  1.000  1.000  1.000  1.000
+        -5   1.000  1.000  1.000  0.995  1.000
+         0   0.995  1.000  1.000  1.000  1.000
+        10   1.000  1.000  1.000  1.000  1.000
+
+The few misses left are at -20 dB or single captures. Not looked at yet:
+Wi-Fi on another channel so the bursts cover only part of the band, and
+traffic heavier than one burst per 7 ms on average.

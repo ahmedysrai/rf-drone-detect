@@ -169,3 +169,19 @@ def test_wideband_frames_flags_wifi_on_most_of_the_capture(rng):
     busy = wideband_frames(spectrogram(x, nfft))
     assert busy[105:250].all() and busy[265:410].all() and busy[425:570].all()
     assert np.count_nonzero(busy[:90]) + np.count_nonzero(busy[590:]) <= 3
+
+
+def test_local_floor_drops_the_bins_of_wifi_too_weak_to_mask(rng):
+    # a -10 dB burst is under the mask's rise, so its frames stay in. A weak tone in the
+    # same frames holds the peak tile, and against the capture's floor the lifted Wi-Fi
+    # bins near the threshold count as occupied
+    fs_hz, nfft = 20e6, 256
+    k = np.arange(nfft * 39)
+    plain, local = [], []
+    for _ in range(10):
+        x = _wifi_in_noise(rng, nfft * 300, nfft * 781, 0.1)
+        x[nfft * 320:nfft * 359] += np.sqrt(0.1) * np.exp(2j * np.pi * 1.3e6 * k / fs_hz)
+        plain.append(occupied_bins(x, 39, 2, mask_wideband=True))
+        local.append(occupied_bins(x, 39, 2, mask_wideband=True, local_floor=True))
+    assert np.mean(local) <= 6
+    assert np.mean(local) < 0.7 * np.mean(plain)

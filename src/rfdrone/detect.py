@@ -70,7 +70,7 @@ def tile_statistic(iq, n_frames, n_bins, nfft=256, mask_wideband=False):
 
 
 def occupied_bins(iq, n_frames, n_bins, nfft=256, k_sigma=3.0, drop_db=20.0,
-                  mask_wideband=False):
+                  mask_wideband=False, local_floor=False):
     """Number of spectrogram bins occupied during the strongest n_frames x n_bins tile.
 
     The spectrogram is averaged over the frames of the tile that tile_statistic would pick,
@@ -86,6 +86,13 @@ def occupied_bins(iq, n_frames, n_bins, nfft=256, k_sigma=3.0, drop_db=20.0,
     leaves out the frames flagged by wideband_frames, so a Wi-Fi burst only adds bins if
     it was too weak to be flagged. The floor estimate assumes more than half the cells hold
     only noise; a band that is busy most of the time raises it and hides the occupied bins.
+
+    local_floor takes the floor from the median bin of the tile's own spectrum instead of
+    the median cell of the capture. A Wi-Fi burst too weak for the mask (about -6 dB and
+    under) then raises the floor along with its own bins, and they stop counting. The median
+    of a mean of n_frames cells is close to the mean, so there is no ln 2 here. Without
+    the mask it would let Wi-Fi through the width gate, since a burst that fills the tile's
+    frames sets the floor itself.
     """
     P, med = _spectrogram_and_floor(iq, nfft, mask_wideband)
     if n_frames > P.shape[0] or n_bins > nfft:
@@ -93,6 +100,6 @@ def occupied_bins(iq, n_frames, n_bins, nfft=256, k_sigma=3.0, drop_db=20.0,
     t = _box_mean(P, n_frames, n_bins)
     f0, _ = np.unravel_index(t.argmax(), t.shape)
     s = P[f0:f0 + n_frames].mean(axis=0)
-    floor = med / np.log(2)
+    floor = np.median(s) if local_floor else med / np.log(2)
     thr = max(floor * (1 + k_sigma / np.sqrt(n_frames)), s.max() * 10 ** (-drop_db / 10))
     return int(np.count_nonzero(s > thr))
