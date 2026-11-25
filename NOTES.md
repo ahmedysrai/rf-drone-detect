@@ -241,3 +241,36 @@ The rise of 1.3 is about 1.1 dB above the quiet frames, so Wi-Fi weaker
 than about -6 dB over 20 MHz (52 of 64 subcarriers lifting each bin by 0.3)
 is still not flagged; at -10 dB it did not upset
 the width gate in the 11-23 tables, but the range in between is untested.
+
+## 2026-11-25
+
+Ran the mixed table with weaker Wi-Fi, the range left open on 11-24.
+detection_curves.py now takes --wifi-db and prints one link plus Wi-Fi table
+per level; the default is -10, -8, -6, -3 and 0 dB (burst power over the
+noise). The link-only and Wi-Fi-only tables come first and are drawn the
+same way as before, so they match 11-24. The 0 dB mixed table now comes after
+four others, so its draws differ: 0.980 at -20 dB where 11-24 had 0.990.
+
+Masked column, seed 0, 200 trials per cell:
+
+    snr_db  -10 dB  -8 dB  -6 dB  -3 dB   0 dB
+       -20   0.990  0.935  0.975  0.995  0.980
+       -15   0.980  0.935  0.995  1.000  1.000
+       -10   0.980  0.955  1.000  1.000  1.000
+        -5   0.990  0.980  1.000  1.000  1.000
+         0   0.980  0.965  1.000  1.000  1.000
+        10   1.000  1.000  1.000  1.000  1.000
+
+The dip is at -8 dB and does not depend on the link SNR, which points at the
+width gate rather than the tile statistic. Flagged fraction of the Wi-Fi
+frames on 40 captures of Wi-Fi alone (seed 5): 0.00 at -10 dB, 0.03 at -8,
+0.52 at -6, 0.88 at -5, 0.99 at -3. Then 300 captures of the link at -20 dB
+with -8 dB Wi-Fi (seed 3, threshold 4.33 dB from 600 noise captures): 25
+misses, every one with the tile statistic above threshold (4.65 to 6.34 dB)
+and 13 to 19 occupied bins against the limit of 12. The mask had flagged 0 to
+20 of the 157 to 375 Wi-Fi frames. So the burst is not masked and lifts each
+of its bins by about 0.2 of the noise (0.16 x 64 / 52). Against the floor of
+the whole capture, which is mostly quiet frames, enough of those bins reach
+the 3 sigma line in a 39-frame average to push the count past 12. At -10 dB
+the lift is too small to matter often, and from -6 dB the mask takes the
+frames out.

@@ -7,7 +7,8 @@ captures. The tile is n_frames x n_bins spectrogram cells (256-point FFT, 12.8 u
 whole capture bandwidth (fs_hz). The link parameters are assumptions chosen to look like
 a 2.4 GHz FSK control radio; they are not taken from a particular protocol. A second
 table runs the same detectors on captures holding only a Wi-Fi interferer, so every
-detection there is a false alarm, and a third puts the link and Wi-Fi in one capture.
+detection there is a false alarm, and the last tables put the link and Wi-Fi in one
+capture, one table per Wi-Fi level (--wifi-db, power over the noise).
 The "narrow" column is the tile detector with a limit on the occupied bandwidth of the
 region it found, which is meant to reject wideband emitters such as Wi-Fi. "masked" is
 the same after leaving out the frames a wideband burst raised (detect.wideband_frames),
@@ -46,6 +47,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tile", type=int, nargs=2, default=[39, 2], metavar=("FRAMES", "BINS"))
     ap.add_argument("--max-bins", type=int, default=MAX_BINS)
+    ap.add_argument("--wifi-db", type=int, nargs="+", default=[-10, -8, -6, -3, 0],
+                    help="Wi-Fi burst power over noise for the mixed tables, one table each")
     args = ap.parse_args()
 
     detectors = {
@@ -92,16 +95,21 @@ def main():
         iq, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
         return iq + noise(n, 10 ** (-snr_db / 10), rng)
 
-    # Wi-Fi bursts at a fixed 0 dB under the link; SNR is the link's, as in the first table
-    def link_and_wifi(snr_db):
-        iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
-        wifi, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
-        p_noise = 10 ** (-snr_db / 10)
-        return iq + np.sqrt(p_noise) * wifi + noise(n, p_noise, rng)
+    # Wi-Fi bursts at a fixed level over the noise under the link; SNR is the link's, as in
+    # the first table
+    def link_and_wifi(wifi_db):
+        def make(snr_db):
+            iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
+            wifi, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
+            p_noise = 10 ** (-snr_db / 10)
+            return iq + np.sqrt(p_noise * 10 ** (wifi_db / 10)) * wifi + noise(n, p_noise, rng)
+        return make
 
     table("FHSS link", [-30, -25, -22, -20, -18, -15, -10, -8, -6, -4, 0, 10, 20], link_only)
     table("Wi-Fi only, no link", [-20, -15, -10, -5, 0, 10], wifi_only)
-    table("FHSS link with 0 dB Wi-Fi", [-20, -15, -10, -5, 0, 10], link_and_wifi)
+    for wifi_db in args.wifi_db:
+        table(f"FHSS link with {wifi_db} dB Wi-Fi", [-20, -15, -10, -5, 0, 10],
+              link_and_wifi(wifi_db))
 
 
 if __name__ == "__main__":
