@@ -299,3 +299,63 @@ Wi-Fi alone are unchanged in every column, masked included (Wi-Fi alone
 The few misses left are at -20 dB or single captures. Not looked at yet:
 Wi-Fi on another channel so the bursts cover only part of the band, and
 traffic heavier than one burst per 7 ms on average.
+
+## 2026-11-26
+
+Moved the Wi-Fi channel off the capture centre, which every table so far
+left out. A 20 MHz capture tuned for the drone link will often sit between
+Wi-Fi channels and see only part of one. ofdm_bursts now drops the
+subcarriers that fall at or beyond fs / 2 instead of refusing such an fc,
+and detection_curves.py takes --wifi-fc-mhz. The Wi-Fi level is still the
+power of the whole channel, so at 5 / 10 / 15 MHz the capture holds 41 / 26
+/ 10 of the 52 subcarriers, at the same power per subcarrier as before.
+
+`python experiments/detection_curves.py --wifi-fc-mhz F --wifi-db -10 -6 0`,
+seed 0, 200 trials per cell. Link alone is the same as 11-25 (the Wi-Fi
+model draws nothing there). Masked column, Wi-Fi alone (all false alarms);
+the centred run of 11-25 had 0.010 to 0.020 from -5 dB up:
+
+    snr_db   5 MHz  10 MHz  15 MHz
+       -10   0.075   0.095   0.040
+        -5   0.335   0.345   0.490
+         0   0.005   0.005   0.000
+        10   0.020   0.010   0.000
+
+Masked column, link with Wi-Fi (centred, 11-25: 0.980 to 1.000):
+
+             -6 dB Wi-Fi             0 dB Wi-Fi
+    snr_db   5 MHz 10 MHz 15 MHz    5 MHz 10 MHz 15 MHz
+       -20   1.000  0.920  0.965    0.990  0.990  0.175
+       -15   0.995  0.915  0.955    1.000  1.000  0.680
+       -10   0.990  0.895  0.965    1.000  1.000  0.760
+        -5   1.000  0.850  0.910    1.000  1.000  0.735
+         0   0.990  0.920  0.920    1.000  1.000  0.775
+        10   1.000  1.000  1.000    1.000  1.000  1.000
+
+With -10 dB Wi-Fi every offset stays at 0.990 or above. So the mask breaks
+in two ways once the channel covers less of the band. To see why, 40
+captures per case on seed 5 (scratch script, not committed), with the
+fraction of Wi-Fi frames that wideband_frames flagged and the occupied bin
+count of the masked column:
+
+    case                          flagged  bins (median, range)  masked hit
+    Wi-Fi -5 dB alone, 0 MHz        0.84   3  (1-5)              0.03
+    Wi-Fi -5 dB alone, 5 MHz        0.41   5  (2-10)             0.28
+    Wi-Fi -5 dB alone, 10 MHz       0.01   13 (2-21)             0.23
+    Wi-Fi -5 dB alone, 15 MHz       0.00   10 (2-19)             0.50
+    link -20, Wi-Fi 0 dB, 10 MHz    0.97   3  (2-7)              1.00
+    link -20, Wi-Fi 0 dB, 15 MHz    0.00   39 (2-43)             0.17
+
+wideband_frames looks at the median bin of each frame, which rises less
+the less of the band a burst covers. At 10 MHz the channel fills 2 to 10
+MHz, 40 % of the bins: a 0 dB burst still pushes the median up into the
+top of the noise bins, a -5 dB one does not. At 15 MHz (16 % of the bins)
+nothing is flagged at either level. An unflagged burst then fails in one of
+two ways. At -5 dB its bins sit about 0.4 of the noise above the floor,
+under the 3 sigma line of a 39-frame average (0.48), so the width gate
+counts only a few of them, while the tile statistic over that block
+passes the threshold: a false alarm. At 0 dB the 40-bin block of a 15 MHz
+channel is counted in full and the width gate throws out the link.
+
+Next: flag wideband energy per sub-band and frame rather than per frame,
+so a channel that covers part of the band is still masked where it is.

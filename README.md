@@ -18,7 +18,11 @@ frames a Wi-Fi burst covers before running the tile detector and the bandwidth
 limit, with the noise floor for that limit taken from the detected region's own
 frames, fixes that: with Wi-Fi from -10 to 0 dB in the capture the link is found
 in 98 % or more of captures at -20 dB and in at least 99.5 % from -15 dB up, and
-Wi-Fi alone sets it off in 1 to 2 %.
+Wi-Fi alone sets it off in 1 to 2 %. Those figures are for a Wi-Fi channel
+centred on the capture. With the channel 5 to 15 MHz off centre, so that only
+part of it falls in the capture, the frame mask misses the bursts: Wi-Fi alone
+at -5 dB then sets off the detector in a third to a half of captures, and a
+0 dB channel 15 MHz off centre hides the link in up to 83 % of them.
 `NOTES.md` has the measured rates.
 
 ```sh

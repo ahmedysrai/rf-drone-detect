@@ -28,8 +28,10 @@ FS_HZ = 20e6
 DURATION_S = 10e-3
 LINK = {"channels_hz": np.arange(-8, 9) * 1e6, "dwell_s": 2e-3, "packet_s": 0.5e-3,
         "sym_rate_hz": 250e3, "dev_hz": 50e3}
-# Wi-Fi interferer on the capture centre. Burst length and mean gap are assumptions
-# (about a 1500 byte frame at 6 Mbit/s, and a lightly loaded channel), not measured traffic.
+# Wi-Fi interferer on the capture centre unless --wifi-fc-mhz moves it. Its level is the
+# power of the whole channel, so a channel partly outside the capture puts less in it.
+# Burst length and mean gap are assumptions (about a 1500 byte frame at 6 Mbit/s, and a
+# lightly loaded channel), not measured traffic.
 WIFI = {**WIFI_20MHZ, "fc_hz": 0.0, "burst_s": 2e-3, "gap_s": 5e-3}
 # "narrow" is the tile detector plus a limit on occupied bandwidth (78.1 kHz bins). 12 bins
 # sits between the 2 to 9 a control packet gave and the 18 or more of a Wi-Fi burst at
@@ -50,7 +52,11 @@ def main():
     ap.add_argument("--max-bins", type=int, default=MAX_BINS)
     ap.add_argument("--wifi-db", type=int, nargs="+", default=[-10, -8, -6, -3, 0],
                     help="Wi-Fi burst power over noise for the mixed tables, one table each")
+    ap.add_argument("--wifi-fc-mhz", type=float, default=0.0,
+                    help="Wi-Fi channel centre from the capture centre; past 1.875 MHz part "
+                         "of the channel falls outside the capture")
     args = ap.parse_args()
+    wifi_params = {**WIFI, "fc_hz": args.wifi_fc_mhz * 1e6}
 
     detectors = {
         "energy": energy_statistic,
@@ -93,7 +99,7 @@ def main():
 
     # SNR is burst power over noise power in the whole capture
     def wifi_only(snr_db):
-        iq, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
+        iq, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **wifi_params)
         return iq + noise(n, 10 ** (-snr_db / 10), rng)
 
     # Wi-Fi bursts at a fixed level over the noise under the link; SNR is the link's, as in
@@ -101,7 +107,7 @@ def main():
     def link_and_wifi(wifi_db):
         def make(snr_db):
             iq, _ = fhss_control(FS_HZ, DURATION_S, rng=rng, **LINK)
-            wifi, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **WIFI)
+            wifi, _ = ofdm_bursts(FS_HZ, DURATION_S, rng=rng, **wifi_params)
             p_noise = 10 ** (-snr_db / 10)
             return iq + np.sqrt(p_noise * 10 ** (wifi_db / 10)) * wifi + noise(n, p_noise, rng)
         return make
