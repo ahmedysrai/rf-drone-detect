@@ -66,9 +66,22 @@ def test_mean_gap_follows_gap_s():
     assert np.mean(gaps_s) == pytest.approx(300e-6, rel=0.15)
 
 
+def test_channel_half_outside_capture_keeps_the_inside_half():
+    # 32 bins up puts the channel centre on the band edge: subcarriers -26..-1 stay
+    iq, bursts = make(fc_hz=32 * 312.5e3)
+    spec = np.abs(np.fft.fft(symbols(iq, bursts), axis=1)) ** 2
+    k = np.fft.fftfreq(N_FFT, 1 / N_FFT).astype(int)
+    inside = (k >= 6) & (k <= 31)
+    assert np.all(spec[:, ~inside] < 1e-18)
+    np.testing.assert_allclose(spec[:, inside], spec[0, inside][0], rtol=1e-9)
+    iq, bursts = make(fc_hz=32 * 312.5e3, duration_s=20e-3)
+    on = np.concatenate([np.arange(start, stop) for start, stop in bursts])
+    assert np.mean(np.abs(iq[on]) ** 2) == pytest.approx(26 / 52, rel=0.01)
+
+
 def test_channel_outside_capture_raises():
-    with pytest.raises(ValueError, match="fc must lie within"):
-        make(fc_hz=2e6)
+    with pytest.raises(ValueError, match="no subcarrier"):
+        make(fc_hz=20e6)
 
 
 def test_spacing_that_does_not_divide_fs_raises():

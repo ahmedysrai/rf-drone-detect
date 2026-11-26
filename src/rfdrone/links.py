@@ -59,6 +59,11 @@ def ofdm_bursts(fs_hz, duration_s, fc_hz, subcarrier_hz, n_used, cp_s, burst_s, 
     gap_s (an assumption standing in for CSMA traffic). There is no preamble and no pilot
     pattern. Power is 1 averaged over a burst and 0 between bursts.
 
+    fc_hz may put part of the channel outside the capture, as when the capture is tuned
+    between two Wi-Fi channels. Subcarriers at or beyond fs_hz / 2 are left out, as an ideal
+    front-end filter would do, and the rest keep their power, so a burst then has power
+    n_kept / n_used. At least one subcarrier must fall inside.
+
     Returns (iq, bursts): iq is complex, length round(duration_s * fs_hz); bursts is an
     (n_bursts, 2) array of [start_sample, stop_sample).
     """
@@ -68,9 +73,11 @@ def ofdm_bursts(fs_hz, duration_s, fc_hz, subcarrier_hz, n_used, cp_s, burst_s, 
     n_fft = round(n_fft)
     if n_used % 2 or n_used + 1 > n_fft:
         raise ValueError(f"n_used must be even and below the FFT size {n_fft}")
-    edge_hz = fs_hz / 2 - (n_used // 2) * subcarrier_hz
-    if abs(fc_hz) > edge_hz:
-        raise ValueError(f"fc must lie within +/-{edge_hz:g} Hz for fs {fs_hz:g} Hz")
+    half = n_used // 2
+    k = np.r_[-half:0, 1:half + 1]
+    k = k[np.abs(fc_hz + k * subcarrier_hz) < fs_hz / 2]
+    if not len(k):
+        raise ValueError(f"no subcarrier at fc {fc_hz:g} Hz falls inside fs {fs_hz:g} Hz")
     n_cp = round(cp_s * fs_hz)
     n_sym = n_fft + n_cp
     sym_per_burst = int(burst_s * fs_hz) // n_sym
@@ -79,17 +86,16 @@ def ofdm_bursts(fs_hz, duration_s, fc_hz, subcarrier_hz, n_used, cp_s, burst_s, 
 
     rng = np.random.default_rng(rng)
     n = round(duration_s * fs_hz)
-    half = n_used // 2
-    used = np.r_[-half:0, 1:half + 1] % n_fft
+    used = k % n_fft
     iq = np.zeros(n, dtype=complex)
     bursts = []
     start = round(rng.exponential(gap_s) * fs_hz)
     while start < n:
-        qpsk = (rng.integers(0, 2, (sym_per_burst, n_used)) * 2 - 1
-                + 1j * (rng.integers(0, 2, (sym_per_burst, n_used)) * 2 - 1)) / np.sqrt(2)
+        qpsk = (rng.integers(0, 2, (sym_per_burst, len(k))) * 2 - 1
+                + 1j * (rng.integers(0, 2, (sym_per_burst, len(k))) * 2 - 1)) / np.sqrt(2)
         grid = np.zeros((sym_per_burst, n_fft), dtype=complex)
         grid[:, used] = qpsk
-        # ifft divides by n_fft, so this scaling gives unit power over the useful part
+        # ifft divides by n_fft, so each subcarrier gets power 1 / n_used over the useful part
         body = np.fft.ifft(grid, axis=1) * n_fft / np.sqrt(n_used)
         syms = np.concatenate([body[:, -n_cp:], body], axis=1) if n_cp else body
         burst = syms.ravel()
