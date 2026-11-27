@@ -11,7 +11,7 @@ detection there is a false alarm, and the last tables put the link and Wi-Fi in 
 capture, one table per Wi-Fi level (--wifi-db, power over the noise).
 The "narrow" column is the tile detector with a limit on the occupied bandwidth of the
 region it found, which is meant to reject wideband emitters such as Wi-Fi. "masked" is
-the same after leaving out the frames a wideband burst raised (detect.wideband_frames),
+the same after leaving out the cells a wideband burst raised (detect.wideband_cells),
 with its own noise-only threshold, and with the width gate's floor taken from the peak
 tile's own spectrum (occupied_bins local_floor).
 
@@ -112,7 +112,8 @@ def main():
             return iq + np.sqrt(p_noise * 10 ** (wifi_db / 10)) * wifi + noise(n, p_noise, rng)
         return make
 
-    table("FHSS link", [-30, -25, -22, -20, -18, -15, -10, -8, -6, -4, 0, 10, 20], link_only)
+    table("FHSS link", [-30, -25, -22, -20, -18, -15, -10, -8, -6, -4, 0, 10, 20, 30, 40],
+          link_only)
     table("Wi-Fi only, no link", [-20, -15, -10, -5, 0, 10], wifi_only)
     for wifi_db in args.wifi_db:
         table(f"FHSS link with {wifi_db} dB Wi-Fi", [-20, -15, -10, -5, 0, 10],

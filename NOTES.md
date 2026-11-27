@@ -359,3 +359,86 @@ channel is counted in full and the width gate throws out the link.
 
 Next: flag wideband energy per sub-band and frame rather than per frame,
 so a channel that covers part of the band is still masked where it is.
+
+## 2026-11-27
+
+Replaced wideband_frames with wideband_cells, which flags sub-bands
+instead of whole frames. It took three tries, all measured with the same
+four runs (`python experiments/detection_curves.py`, and with
+`--wifi-fc-mhz F --wifi-db -10 -6 0` for F = 5, 10, 15), seed 0, 200
+trials per cell.
+
+First a scratch study of what a sub-band can see. Per-frame median of 32
+bins, then an 8-frame average, spreads far more than the whole-band median:
+noise-only maxima of the rise ratio over 200 captures were 1.90 (32 bins,
+8 frames), 1.58 (32, 16) and 1.38 (32, 32), against 1.24 for the old
+whole-band form. A
+-5 dB burst only lifts a sub-band to about 1.2 to 1.45, so it sits at the
+noise limit for any 32-bin version. 0 dB lifts it to about 2.
+
+The first try (median of 32 bins, 32-frame average) also flagged the
+drone link itself: at 10 dB wideband SNR its own sub-band rose to 1.8
+(median of 20 captures), 15 at 30 dB and 135 at 40 dB. The packet has no
+pulse shaping, and the 32-frame average of its sub-band at 40 dB runs from 60 dB at the peak to
+still 10 dB over the noise 30 bins away. The old frame mask did not have
+this problem (masked column 1.00 at 20, 30 and 40 dB in a 100-capture
+check with the old code), since 30 skirt bins hardly move a 256-bin
+median. Two changes for that: the level is now the lower quartile of the
+bins after averaging over 32 frames (noise-only max 1.42 on 500 captures,
+seed 1), and inside a flagged sub-band only cells within 15 dB of the
+flagged level are masked, so a packet that stands out of its own skirts
+stays. The link-only table now goes up to 40 dB to keep this checked.
+
+That version (32-bin sub-bands only, cap from the cell's own sub-band,
+flags grown 16 frames and one sub-band each way) fixed the link with
+off-centre Wi-Fi but gave two new false alarm cases, masked column, Wi-Fi
+alone:
+
+    snr_db   centred  5 MHz  10 MHz  15 MHz
+        -5    0.075   0.065   0.070   0.180
+        10    0.400   0.740   0.715   0.745
+
+At -5 dB the 32-bin sub-bands miss what the old whole-band median caught
+(0.84 of frames flagged on 11-26). At +10 dB the sub-band at the channel
+edge holds a few strong Wi-Fi bins but a lower quartile at the noise, so
+its own cap let them through. Fixes: flag at widths 32, 64, 128 and 256
+bins, each with its own rise above the noise-only maximum on 500 captures
+of seed 1 (1.42, 1.26, 1.18, 1.12, so rises 1.45, 1.28, 1.2, 1.13; on
+seed 2 the maxima were 1.40, 1.26, 1.18, 1.13 and no capture of 500 had a
+flagged cell), and take the cap from the highest flagged level nearby.
+
+That left 15 MHz, Wi-Fi alone at +10 dB, at 0.49. All six false alarms I
+looked at (seed 7) had the peak tile in bins 0 and 1: the channel ends
+just under +fs/2 and its leakage wraps round to -fs/2, since the DFT is
+circular. The flags now grow round the band edge as well.
+
+Final run, masked column. Link alone 1.000 from -20 to 40 dB at every
+offset (the extra rows make later tables draw differently from 11-26).
+Wi-Fi alone:
+
+    snr_db   centred  5 MHz  10 MHz  15 MHz
+       -20    0.025   0.015   0.010   0.025
+       -15    0.010   0.015   0.020   0.030
+       -10    0.015   0.030   0.040   0.020
+        -5    0.000   0.005   0.020   0.140
+         0    0.020   0.010   0.000   0.025
+        10    0.010   0.000   0.005   0.010
+
+On 11-26 the -5 dB row was 0.020 / 0.335 / 0.345 / 0.490. Link with
+Wi-Fi, lowest value over link SNR -20 to 10 dB (always at -20 dB or
+-15 dB):
+
+    Wi-Fi    centred  5 MHz  10 MHz  15 MHz
+    -10 dB    0.980   0.995   1.000   1.000
+     -6 dB    0.975   0.975   0.975   0.980
+      0 dB    0.955   0.970   0.965   0.990
+
+On 11-26 the 15 MHz, 0 dB case was 0.175 at -20 dB and 0.68 to 0.78 up to
+0 dB. Centred it is a little lower than 11-25 at -20 dB (0.945 to 0.980
+against 0.980 to 1.000), likely because more of the band is masked round
+each burst now, but the draws also differ, so not settled.
+
+Still open: a -5 dB channel 15 MHz off centre (0.140). Its 45 bins fill
+one 32-bin sub-band at a rise of about 1.25, under the 1.45 that noise
+needs. Per-run time for the full centred script went from about 11 to
+about 15 minutes.

@@ -14,15 +14,14 @@ A Wi-Fi burst at -5 dB with no drone present sets off both detectors.
 Adding a limit on the occupied bandwidth of the detected region cuts those
 false alarms to 0.5 % or less, but on its own it rejects most real detections
 whenever Wi-Fi is on the air at the same time as the link. Leaving out the
-frames a Wi-Fi burst covers before running the tile detector and the bandwidth
-limit, with the noise floor for that limit taken from the detected region's own
-frames, fixes that: with Wi-Fi from -10 to 0 dB in the capture the link is found
-in 98 % or more of captures at -20 dB and in at least 99.5 % from -15 dB up, and
-Wi-Fi alone sets it off in 1 to 2 %. Those figures are for a Wi-Fi channel
-centred on the capture. With the channel 5 to 15 MHz off centre, so that only
-part of it falls in the capture, the frame mask misses the bursts: Wi-Fi alone
-at -5 dB then sets off the detector in a third to a half of captures, and a
-0 dB channel 15 MHz off centre hides the link in up to 83 % of them.
+parts of the spectrogram a Wi-Fi burst raises before running the tile detector
+and the bandwidth limit, with the noise floor for that limit taken from the
+detected region's own frames, fixes that. The mask works per sub-band, so it
+also covers a Wi-Fi channel up to 15 MHz off centre that only partly falls in
+the capture. With Wi-Fi from -10 to 0 dB, centred or off centre, the link is
+found in 94.5 % or more of captures at -20 dB and in at least 99 % from -15 dB
+up. Wi-Fi alone sets the detector off in 4 % of captures or less, except a
+-5 dB channel 15 MHz off centre, which does in 14 %.
 `NOTES.md` has the measured rates.
 
 ```sh
